@@ -23,7 +23,7 @@ import io
 from string import ascii_uppercase
 import itertools
 
-def write_tough_grid(x, y, z, filename='MESH', style=1):
+def write_tough_grid(x, y, z, style=1):
     """Writes gridded data to TOUGH+Hydrate mesh file (MESH). This is useful for
     exporting data to TOUGH+Hydrate program.
     
@@ -46,8 +46,9 @@ def write_tough_grid(x, y, z, filename='MESH', style=1):
         Specifying 2 writes out CELLSIZE (note DX must be the same as DY),
         XLLCORNER, YLLCORNER. Default is 1.
     """
-    
-    
+    filename='MESH'
+    filename2='INCON'
+
     if np.ma.is_masked(z):
         z = np.array(z.tolist(-999.))
 
@@ -107,17 +108,57 @@ def write_tough_grid(x, y, z, filename='MESH', style=1):
     elements = []
 
     nn = nrows*ncols
-    elements = range(1,nn,1)
+    elements = range(1,nn+1,1)
     elx = np.tile(x,nrows)
     ely = np.repeat(y,ncols)
+    elvalues = z.flatten()
+    cony = []
+    conx = []
+    bdy_elements =[]
+    elmap = np.array(elements).reshape(np.shape(z))
+    for ii in range(ncols):
+        map1 = np.argwhere(z[:,ii]!=-999)
+        if len(map1) == 0:
+            continue
+        map2 = [elmap[jj,ii] for jj in map1[:]]
+        map3= [list(x) for x in map2]
+        conymap= sum(map3, [])
+        cony2=[]
+        for first, second in zip(conymap, conymap[1:]):
+            elvol = dx*dy
+            dist1 = dy/2
+            dist2 = dy/2
+            pair = np.array([first, second, dist1, dist2, elvol])
+            cony2 = np.append(cony2, pair)
+            cony2= cony2.reshape(-1,5)
+        cony2[0,2] = 0.001
+        cony2[-1,2] = 0.001
+        bdy_elements= np.append(bdy_elements, int(cony2[0,0]), int(cony2[-1,0]))
+        cony= np.append(cony, cony2).reshape(-1,5)
+            
+    for ii in range(nrows):
+        map1 = np.argwhere(z[ii,:]!=-999)
+        if len(map1) == 0:
+            continue
+        map2 = [elmap[ii,jj] for jj in map1[:]]
+        map3= [list(x) for x in map2]
+        conxmap= sum(map3, [])
+        
+        for first, second in zip(conxmap, conxmap[1:]):
+            elvol = dx*dy
+            dist1 = dx/2
+            dist2 = dx/2
+            pair = np.array([first, second, dist1, dist2, elvol])
+            
+            conx = np.append(conx, pair)
+        conx= conx.reshape(-1,5)
+
+    elvol= np.repeat(dx*dy,nn)
+    poro = elvalues*0.005
+    perm = poro*1e-10
+    el_array = np.column_stack((elements, elx, ely, elvalues, elvol, poro, perm))
+    active_elements = el_array[el_array[:,3]!=-999]
     
-    
-    # for s in iter_all_strings():
-    #     nr += 1
-    #     elements = np.append(elements,s)
-    #     if nr == nrows:
-    #         break
-    elvol= dx*dy
     with io.open(filename, 'w') as f:
         if style == 1:
             f.write("ELEME----1----*----2----*----3----*----4----*----5----*----6----*----7----*----8"+"\n")
@@ -131,23 +172,31 @@ def write_tough_grid(x, y, z, filename='MESH', style=1):
             # f.write("DX             " + '{:<10.2f}'.format(dx) + '\n')
             # f.write("DY             " + '{:<10.2f}'.format(dy) + '\n')
             # f.write("NODATA_VALUE   " + '{:<10.2f}'.format(no_data) + '\n')
-            for ii in range(len(elements)):
+            for ii in range(len(active_elements)):
                 eleme_string = '{0:5d}{1:^10}{2:5s}{3:10.4f}{4:^20}{5:10.4f}{6:10.4f}{7:10.4f}\n' \
-                    .format(elements[ii], ' ','sand1',elvol,' ', elx[ii], 10, ely[ii]) 
-            
+                    .format(int(active_elements[ii,0]), ' ','sand1',active_elements[ii,4],' ', active_elements[ii,1], 10, -1*active_elements[ii,2]) 
                 f.write(eleme_string)
             f.write('\n'+'CONNE----1----*----2----*----3----*----4----*----5----*----6----*----7----*----8'+'\n')
-            conx = [item for item in elements if item % ncols != 0]
-        
-            conx2 =[item+1 for item in conx]# if item % ncols != 0]
-            cony = elements[:-(ncols-1)]
-            cony2=[item+ncols for item in cony]
+
+            # conx = [item for item in elements[:] if item % ncols != 0]
+
+            # conx2 =[item+1 for item in conx]
+            
+            # cony = elements[:-(ncols-1)]
+            # cony2=[item+ncols for item in cony]
+            # result1 = all(elem in active_elements[:,0]  for elem in cony)
+            # result2 = all(elem in active_elements[:,0]  for elem in cony)
+            
+            # cony3 = list(set(active_elements[:,0]).intersection(set(list(cony))))
+            # cony4 = list(set(active_elements[:,0]).intersection(set(cony2)))
+
+
             # with io.open('connections.txt', 'w') as f:
             for ii in range(len(conx)):
-                connex_string ='{0:5d}{1:5d}{2:^19}{3:1d}{4:10.4f}{5:10.4f}{6:10.4f}{7:10.4f}\n'.format(conx[ii],conx2[ii], ' ',1,dx,dx, elvol,0)
+                connex_string ='{0:5d}{1:5d}{2:^19}{3:1d}{4:10.4f}{5:10.4f}{6:10.4f}{7:10.4f}\n'.format(int(conx[ii,0]),int(conx[ii,1]), ' ',1,dx,dx, elvol[ii],0)
                 f.write(connex_string)
             for ii in range(len(cony)):
-                conney_string ='{0:5d}{1:5d}{2:^19}{3:1d}{4:10.4f}{5:10.4f}{6:10.4f}{7:10.4f}\n'.format(cony[ii],cony2[ii], ' ',3,dy,dy, elvol,-1)
+                conney_string ='{0:5d}{1:5d}{2:^19}{3:1d}{4:10.4f}{5:10.4f}{6:10.4f}{7:10.4f}\n'.format(int(cony[ii,0]),int(cony2[ii,1]), ' ',3,dy,dy, elvol[ii],1)
                 f.write(conney_string)
             f.write('\n')
         elif style == 2:
@@ -181,7 +230,30 @@ def write_tough_grid(x, y, z, filename='MESH', style=1):
         
         
         f.close()
-
+        with io.open(filename2, 'w') as f:
+            f.write("INCON  Initial conditions for    {:d} elements at time".format(len(active_elements))+"\n")
+            # f.write("NROWS          " + '{:<10n}'.format(nrows) + '\n')
+            
+            # f.write("NCOLS          " + '{:<10n}'.format(ncols) + '\n')
+            
+            
+            # f.write("XLLCENTER      " + '{:<10.2f}'.format(xllcenter) + '\n')
+            # f.write("YLLCENTER      " + '{:<10.2f}'.format(yllcenter) + '\n')
+            # f.write("DX             " + '{:<10.2f}'.format(dx) + '\n')
+            # f.write("DY             " + '{:<10.2f}'.format(dy) + '\n')
+            # f.write("NODATA_VALUE   " + '{:<10.2f}'.format(no_data) + '\n')
+            for ii in range(len(active_elements)):
+                incon_string1 = '{0:5d}{1:^10}{2:15.8f}{3:s}{4:s}{5:^35}{6:15.8e}{7:15.8e}{8:15.8e}\n' \
+                    .format(int(active_elements[ii,0]), ' ',active_elements[ii,5],'  ','Aqu',' ', active_elements[ii,6], active_elements[ii,6], 0.1*active_elements[ii,6]) 
+                f.write(incon_string1)
+                p1 = 1e5*active_elements[ii,2]
+                p2 = 2e-4
+                p3 = 3.5e-2
+                p4 = 3+0.03*(active_elements[ii,2]-1900)
+                incon_string2 = "{0:20.13e}{1:20.13e}{2:20.13e}{3:20.13e}\n".format(p1, p2, p3, p4)
+                f.write(incon_string2)
+                f.write('\n')
+            
 
 
 
